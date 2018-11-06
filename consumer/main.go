@@ -1,32 +1,50 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/streadway/amqp"
 )
 
+// Error message helper
 func failOnError(err error, msg string) {
 	if err != nil {
 		log.Fatalf("%s: %s", msg, err)
 	}
 }
+
+// Environment variable helper
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
+}
+
 func main() {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	broker := getEnv("BROKER", "localhost")
+	queue := getEnv("QUEUE", "hello")
+
+	conn, err := amqp.Dial(fmt.Sprintf("amqp://guest:guest@%s:5672/", broker))
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
+
 	ch, err := conn.Channel()
 	failOnError(err, "Failed to open a channel")
 	defer ch.Close()
+
 	q, err := ch.QueueDeclare(
-		"hello", // name
-		false,   // durable
-		false,   // delete when usused
-		false,   // exclusive
-		false,   // no-wait
-		nil,     // arguments
+		queue, // name
+		false, // durable
+		false, // delete when usused
+		false, // exclusive
+		false, // no-wait
+		nil,   // arguments
 	)
 	failOnError(err, "Failed to create queue")
+
 	msgs, err := ch.Consume(
 		q.Name, // queue
 		"",     // consumer
@@ -37,12 +55,15 @@ func main() {
 		nil,    // args
 	)
 	failOnError(err, "Failed to register consumer")
+
 	forever := make(chan bool)
+
 	go func() {
 		for msg := range msgs {
 			log.Printf("Received message: %s", msg.Body)
 		}
 	}()
+
 	log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
 	<-forever
 }
